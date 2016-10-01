@@ -1,0 +1,58 @@
+{
+    "author": "BigMontana",
+    "dependencies": {
+        "pebble-clay": "^1.0.2",
+        "pebble-events": "^1.1.0",
+        "pebble-generic-weather": "^1.1.0"
+    },
+    "keywords": [],
+    "name": "1701d_lcars",
+    "pebble": {
+        "capabilities": [
+            "location",
+            "configurable",
+            "health"
+        ],
+        "displayName": "Step in Time",
+        "enableMultiJS": true,
+        "messageKeys": [
+            "APIKEY",
+            "FTICK",
+            "WeatherProvide",
+            "STEPGOAL",
+            "STEPMIDGOAL",
+            "READY"
+        ],
+        "projectType": "native",
+        "resources": {
+            "media": [
+                {
+                    "file": "images/tile.png",
+                    "menuIcon": true,
+                    "name": "TILE",
+                    "targetPlatforms": [
+                        "basalt"
+                    ],
+                    "type": "bitmap"
+                },
+                {
+                    "file": "fonts/weather.ttf",
+                    "name": "WEATHERICON_38",
+                    "targetPlatforms": [
+                        "basalt"
+                    ],
+                    "type": "font"
+                }
+            ]
+        },
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "basalt"
+        ],
+        "uuid": "287dd8bd-b4eb-4877-897e-a47b5be53264",
+        "watchapp": {
+            "watchface": true
+        }
+    },
+    "version": "1.9.0"
+}
