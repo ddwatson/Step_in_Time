@@ -3,10 +3,10 @@
     "dependencies": {
         "pebble-clay": "^1.0.2",
         "pebble-events": "^1.1.0",
-        "pebble-generic-weather": "^1.1.0"
+        "pebble-generic-weather": "^1.1.4"
     },
     "keywords": [],
-    "name": "1701d_lcars",
+    "name": "stepintime",
     "pebble": {
         "capabilities": [
             "location",
@@ -54,5 +54,5 @@
             "watchface": true
         }
     },
-    "version": "1.9.0"
+    "version": "1.0.0"
 }

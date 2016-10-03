@@ -160,8 +160,8 @@ static void update_time() {
   s_step_count = get_health(HealthMetricStepCount, 0);
   s_step_average = get_health(HealthMetricStepCount, 1);
   s_step_goal = get_health(HealthMetricStepCount, 2);
-  s_step_count = 3298;
-  s_step_average = 2398;
+//  s_step_count = 3898;
+//  s_step_average = 3398;
   if (s_step_count_prev <=1) {s_step_count_prev = s_step_count;}
   display_step_count();
   layer_mark_dirty(s_progress_layer);
