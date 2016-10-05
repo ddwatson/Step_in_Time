@@ -15,16 +15,30 @@ module.exports = [
         "defaultValue": "Watchface Settings"
       },
       {
-        "type": "input",
-        "messageKey": "STEPMIDGOAL",
-        "defaultValue": "4500",
-        "label": "Set your intermediate step goal and your watch will buzz when you achieve that goal.  Set to 0 to disable."
+        "type": "toggle",
+        "messageKey": "STEPGOALENABLED",
+        "label": "Enable Step Goals?",
+        "defaultValue": true
       },
       {
-        "type": "input",
+        "type": "slider",
+        "messageKey": "STEPMIDGOAL",
+        "defaultValue": 4500,
+        "label": "Intermediate Step Goal",
+        "description": "Set your intermediate step goal and your watch will buzz when you achieve that goal.",
+        "min": 1000,
+        "max": 15000,
+        "step": 500
+      },
+      {
+        "type": "slider",
         "messageKey": "STEPGOAL",
-        "defaultValue": "7500",
-        "label": "Set your daily step goal and your watch will buzz when you achieve that goal.  Set to 0 to disable."
+        "defaultValue": 7500,
+        "label": "Daily Step Goal",
+        "description": "Set your daily step goal and your watch will buzz when you achieve that goal.",
+        "min": 5000,
+        "max": 20000,
+        "step": 500
       }
     ]
     },

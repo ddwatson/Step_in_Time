@@ -5,7 +5,8 @@
 static Window *s_window;
 static Layer *s_window_layer, *s_dots_layer, *s_progress_layer, *s_average_layer, *s_battery_layer, *s_bt_layer;
 static TextLayer *s_time_layer, *s_step_layer, *s_date_layer, *s_status_layer;
-static char s_current_time_buffer[8], s_current_steps_buffer[16], StringUserMidStepGoal[6], StringUserStepGoal[6];
+static char s_current_time_buffer[8], s_current_steps_buffer[16];
+static bool StepGoalEnabled = S_TRUE;
 static int s_step_count = 1, s_step_count_prev =1, s_step_goal = 1, s_step_average = 1, s_battery_level, s_battery_charging, UserMidStepGoal = 4500, UserStepGoal = 7500;
 #define TIMER_INTERVAL_MS 180000
 static char generic_status[]="Day Avg:\n10,000";
@@ -14,20 +15,18 @@ static void read_persist()
 {
 	if(persist_exists(MESSAGE_KEY_STEPGOAL))
 	{
-		persist_read_string(MESSAGE_KEY_STEPGOAL, StringUserStepGoal, sizeof(StringUserStepGoal));
-    if (strlen(StringUserStepGoal)>0) {UserStepGoal = atoi(StringUserStepGoal);}
+		UserStepGoal = persist_read_int(MESSAGE_KEY_STEPGOAL);
 	}
 	if(persist_exists(MESSAGE_KEY_STEPMIDGOAL))
 	{
-		persist_read_string(MESSAGE_KEY_STEPMIDGOAL, StringUserMidStepGoal, sizeof(StringUserMidStepGoal));
-    if (strlen(StringUserMidStepGoal)>0){UserMidStepGoal = atoi(StringUserMidStepGoal);}
+		UserMidStepGoal=persist_read_int(MESSAGE_KEY_STEPMIDGOAL);
 	}
 }
 
 static void store_persist()
 {
-  persist_write_string(MESSAGE_KEY_STEPGOAL, StringUserStepGoal);
-  persist_write_string(MESSAGE_KEY_STEPMIDGOAL, StringUserMidStepGoal);
+  persist_write_int(MESSAGE_KEY_STEPGOAL, UserStepGoal);
+  persist_write_int(MESSAGE_KEY_STEPMIDGOAL, UserMidStepGoal);
 }
 
 static void inbox_received_callback(DictionaryIterator *iterator, void *context)
@@ -41,15 +40,13 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 	data = dict_find(iterator, MESSAGE_KEY_STEPGOAL);
 	if(data)
 	{
-		strcpy(StringUserStepGoal, data->value->cstring);
-    UserStepGoal = atoi(StringUserStepGoal);
+		UserStepGoal = data->value->uint32;
 	}
 
 	data = dict_find(iterator, MESSAGE_KEY_STEPMIDGOAL);
 	if(data)
 	{
-		strcpy(StringUserMidStepGoal, data->value->cstring);
-    UserMidStepGoal = atoi(StringUserMidStepGoal);
+		UserMidStepGoal= data->value->uint32;
 	}
 }
 
@@ -166,7 +163,7 @@ static void update_time() {
   display_step_count();
   layer_mark_dirty(s_progress_layer);
   layer_mark_dirty(s_average_layer);
-  if ((s_step_count_prev<UserStepGoal)&&(s_step_count>=UserStepGoal)) {
+  if (StepGoalEnabled&&(s_step_count_prev<UserStepGoal)&&(s_step_count>=UserStepGoal)) {
     static const uint32_t const segments[] = { 200, 200, 50, 50, 50, 50, 100, 200, 400 };
     VibePattern pat = {
       .durations = segments,
@@ -176,7 +173,7 @@ static void update_time() {
     text_layer_set_text(s_status_layer, "Day Goal\nMet");
     app_timer_register(TIMER_INTERVAL_MS, clear_status, NULL);
   }
-  else if ((s_step_count_prev<UserMidStepGoal)&&(s_step_count>=UserMidStepGoal)) {
+  else if (StepGoalEnabled&&(s_step_count_prev<UserMidStepGoal)&&(s_step_count>=UserMidStepGoal)) {
     static const uint32_t const segments2[] = { 200, 200, 50, 50, 100, 200, 400 };
     VibePattern pat = {
       .durations = segments2,
@@ -376,7 +373,7 @@ static void window_unload(Window *window) {
   layer_destroy(s_dots_layer);
   layer_destroy(s_progress_layer);
   layer_destroy(s_average_layer);
-  layer_destroy(s_window_layer);
+  //layer_destroy(s_window_layer);
   events_battery_state_service_unsubscribe(battery_callback);
   events_connection_service_unsubscribe(bluetooth_callback);
   events_tick_timer_service_unsubscribe(tick_handler);
@@ -384,7 +381,7 @@ static void window_unload(Window *window) {
   events_app_message_unsubscribe(inbox_dropped_callback);
   events_app_message_unsubscribe(outbox_failed_callback);
   events_app_message_unsubscribe(outbox_sent_callback);
-//  window_destroy(window);
+  window_destroy(window);
 }
 
 void init() {
