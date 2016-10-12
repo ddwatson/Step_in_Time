@@ -22,7 +22,10 @@
             "STEPGOAL",
             "STEPMIDGOAL",
             "READY",
-            "STEPGOALENABLED"
+            "STEPGOALENABLED",
+            "MANUALSLEEPSTART",
+            "TEXTCOLOR",
+            "GOALTYPE"
         ],
         "projectType": "native",
         "resources": {
@@ -37,6 +40,7 @@
                     "type": "bitmap"
                 },
                 {
+                    "characterRegex": "[JDFEAGIHgcM]",
                     "file": "fonts/weather.ttf",
                     "name": "WEATHERICON_38",
                     "targetPlatforms": [
@@ -55,5 +59,5 @@
             "watchface": true
         }
     },
-    "version": "1.1.0"
+    "version": "1.2.0"
 }

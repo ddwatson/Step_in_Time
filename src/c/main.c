@@ -4,12 +4,15 @@
 
 static Window *s_window;
 static Layer *s_window_layer, *s_dots_layer, *s_progress_layer, *s_average_layer, *s_battery_layer, *s_bt_layer;
-static TextLayer *s_time_layer, *s_step_layer, *s_date_layer, *s_status_layer;
-static char s_current_time_buffer[8], s_current_steps_buffer[16];
-static bool StepGoalEnabled = S_TRUE;
+static TextLayer *s_time_layer, *s_step_layer, *s_date_layer, *s_status_layer,  *s_temperature_layer, *icon_weather_layer;
+static char s_current_time_buffer[8], s_current_steps_buffer[16], api_key[50], userweatherprovider[7];
 static int s_step_count = 1, s_step_count_prev =1, s_step_goal = 1, s_step_average = 1, s_battery_level, s_battery_charging, UserMidStepGoal = 4500, UserStepGoal = 7500;
 #define TIMER_INTERVAL_MS 180000
 static char generic_status[]="Day Avg:\n10,000";
+static bool F_Tick = S_TRUE, Watchface_Hibernate = S_FALSE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE;
+static int text_color_value =0, UserManualSleepStart=24;
+GColor text_color;
+static GFont s_weather_icon_font;
 
 static void read_persist()
 {
@@ -21,33 +24,148 @@ static void read_persist()
 	{
 		UserMidStepGoal=persist_read_int(MESSAGE_KEY_STEPMIDGOAL);
 	}
+	if(persist_exists(MESSAGE_KEY_STEPGOALENABLED))
+	{
+		StepGoalEnabled = persist_read_bool(MESSAGE_KEY_STEPGOALENABLED);
+	}
+	if(persist_exists(MESSAGE_KEY_MANUALSLEEPSTART)) 	{
+		UserManualSleepStart = persist_read_int(MESSAGE_KEY_MANUALSLEEPSTART);
+	}
+  if(persist_exists(MESSAGE_KEY_GOALTYPE)) {
+    UserSetpGoalType = persist_read_bool(MESSAGE_KEY_GOALTYPE);
+  }
+  if(persist_exists(MESSAGE_KEY_APIKEY)) 	{
+		persist_read_string(MESSAGE_KEY_APIKEY, api_key, sizeof(api_key));
+	}
+	if(persist_exists(MESSAGE_KEY_FTICK)) {
+		F_Tick = persist_read_bool(MESSAGE_KEY_FTICK);
+	}
+	if(persist_exists(MESSAGE_KEY_WeatherProvide)) {
+		persist_read_string(MESSAGE_KEY_WeatherProvide, userweatherprovider, sizeof(userweatherprovider));
+    if (strlen(userweatherprovider)>1) {WeatherEnabled=S_TRUE;}
+	}
 }
 
 static void store_persist()
 {
   persist_write_int(MESSAGE_KEY_STEPGOAL, UserStepGoal);
   persist_write_int(MESSAGE_KEY_STEPMIDGOAL, UserMidStepGoal);
+  persist_write_bool(MESSAGE_KEY_STEPGOALENABLED, StepGoalEnabled);
+  persist_write_bool(MESSAGE_KEY_GOALTYPE, UserSetpGoalType);
+  persist_write_int(MESSAGE_KEY_MANUALSLEEPSTART, UserManualSleepStart);
+	persist_write_string(MESSAGE_KEY_APIKEY, api_key);
+  persist_write_bool(MESSAGE_KEY_FTICK, F_Tick);
+	persist_write_string(MESSAGE_KEY_WeatherProvide, userweatherprovider);
+  if (text_color_value >0) { persist_write_int(MESSAGE_KEY_TEXTCOLOR, text_color_value); }
 }
 
-static void inbox_received_callback(DictionaryIterator *iterator, void *context)
-{
-	Tuple *data = dict_find(iterator, MESSAGE_KEY_READY);
-	if(data)
-	{
-		APP_LOG(APP_LOG_LEVEL_DEBUG, "Ready Received!.");
+static void clear_status(){
+  int thousands = s_step_goal / 1000;
+  int hundreds = s_step_goal % 1000;
+  if(thousands > 0) {
+    snprintf(generic_status, sizeof(generic_status), "Day Avg:\n%d,%03d", thousands, hundreds);
+  } else {
+    snprintf(generic_status, sizeof(generic_status), "Day Avg:\n%d", s_step_goal);
   }
-  
-	data = dict_find(iterator, MESSAGE_KEY_STEPGOAL);
-	if(data)
-	{
-		UserStepGoal = data->value->uint32;
-	}
+  text_layer_set_text(s_status_layer, generic_status);
+}
 
-	data = dict_find(iterator, MESSAGE_KEY_STEPMIDGOAL);
-	if(data)
-	{
-		UserMidStepGoal= data->value->uint32;
-	}
+static void weather_callback(GenericWeatherInfo *info, GenericWeatherStatus status) {
+if (WeatherEnabled){
+  static char s_buffer[16];
+  switch(status) {
+    case GenericWeatherStatusAvailable:
+    {
+        clear_status();  //clears out any previous messages
+//      static char s_city_buffer[32];
+//      static char s_weather_description[14];
+//      snprintf(s_buffer, sizeof(s_buffer),"Temperature (K/C/F): %d/%d/%d\n\nName:\n%s\n\nDescription:\n%s",info->temp_k, info->temp_c, info->temp_f, info->name, info->description);
+      if (F_Tick) {
+        snprintf(s_buffer, sizeof(s_buffer),"%d˚", info->temp_f);}
+      else {
+        snprintf(s_buffer, sizeof(s_buffer),"%d˚", info->temp_c);}
+      text_layer_set_text(s_temperature_layer, s_buffer);
+//      snprintf(s_city_buffer, sizeof(s_city_buffer),"%s",info->name);
+//      text_layer_set_text(s_city_layer, s_city_buffer);
+//      if (WeatherDescriptionDisp) {
+//        snprintf(s_weather_description, sizeof(s_weather_description),"%s",info->description);
+//        text_layer_set_text(s_weatherdescript_layer, s_weather_description);
+//      }		
+//      else {text_layer_set_text(s_weatherdescript_layer, " ");}
+		switch(info->condition)
+			{
+				case GenericWeatherConditionClearSky:
+					if(info->day)
+					{
+						text_layer_set_text(icon_weather_layer, "J");
+					}
+					else
+					{
+						text_layer_set_text(icon_weather_layer, "D");
+					}
+					break;
+				case GenericWeatherConditionFewClouds:
+					if(info->day)
+					{
+						text_layer_set_text(icon_weather_layer, "F");
+					}
+					else
+					{
+						text_layer_set_text(icon_weather_layer, "E");
+					}
+					break;
+				case GenericWeatherConditionScatteredClouds:
+					text_layer_set_text(icon_weather_layer, "A");
+					break;
+				case GenericWeatherConditionBrokenClouds:
+					text_layer_set_text(icon_weather_layer, "A");
+					break;
+				case GenericWeatherConditionShowerRain:
+					text_layer_set_text(icon_weather_layer, "G");
+					break;
+				case GenericWeatherConditionRain:
+					text_layer_set_text(icon_weather_layer, "G");
+					break;
+				case GenericWeatherConditionThunderstorm:
+					text_layer_set_text(icon_weather_layer, "I");
+					break;
+				case GenericWeatherConditionSnow:
+					text_layer_set_text(icon_weather_layer, "H");
+					break;
+				case GenericWeatherConditionMist:
+					text_layer_set_text(icon_weather_layer, "g");
+					break;
+				case GenericWeatherConditionUnknown:
+					text_layer_set_text(icon_weather_layer, "c");
+					break;
+			}
+    }
+      break;
+    case GenericWeatherStatusNotYetFetched:
+//      text_layer_set_text(s_status_layer, "Load...");
+      break;
+    case GenericWeatherStatusBluetoothDisconnected:
+      text_layer_set_text(s_status_layer, "No BT");
+      app_timer_register(TIMER_INTERVAL_MS, clear_status, NULL);
+      break;
+    case GenericWeatherStatusPending:
+//      text_layer_set_text(s_status_layer, "Load...");
+      break;
+    case GenericWeatherStatusFailed:
+      snprintf(s_buffer, sizeof(s_buffer),"%s Failed", userweatherprovider);
+      text_layer_set_text(s_status_layer, s_buffer);
+      app_timer_register(TIMER_INTERVAL_MS, clear_status, NULL);
+      break;
+    case GenericWeatherStatusBadKey:
+      snprintf(s_buffer, sizeof(s_buffer),"%s Bad Key", userweatherprovider);
+      text_layer_set_text(s_status_layer, s_buffer);
+      app_timer_register(TIMER_INTERVAL_MS, clear_status, NULL);
+      break;
+    case GenericWeatherStatusLocationUnavailable:
+      text_layer_set_text(s_status_layer, "No Locate");
+      app_timer_register(TIMER_INTERVAL_MS, clear_status, NULL);
+      break;
+  }}
 }
 
 static void inbox_dropped_callback(AppMessageResult reason, void *context)
@@ -119,8 +237,6 @@ static void display_step_count() {
   int thousands = s_step_count / 1000;
   int hundreds = s_step_count % 1000;
 
-  text_layer_set_text_color(s_step_layer, GColorPictonBlue);
-
   if(thousands > 0) {
     snprintf(s_current_steps_buffer, sizeof(s_current_steps_buffer),
       "%d,%03d steps", thousands, hundreds);
@@ -131,34 +247,17 @@ static void display_step_count() {
   text_layer_set_text(s_step_layer, s_current_steps_buffer);
 }
 
-static void clear_status(){
-  int thousands = s_step_goal / 1000;
-  int hundreds = s_step_goal % 1000;
-  if(thousands > 0) {
-    snprintf(generic_status, sizeof(generic_status), "Day Avg:\n%d,%03d", thousands, hundreds);
-  } else {
-    snprintf(generic_status, sizeof(generic_status), "Day Avg:\n%d", s_step_goal);
-  }
-  text_layer_set_text(s_status_layer, generic_status);
-}
-
-static void update_time() {
-  time_t temp = time(NULL);
-  struct tm *tick_time = localtime(&temp);
-  strftime(s_current_time_buffer, sizeof(s_current_time_buffer),
-           clock_is_24h_style() ? "%H:%M" : "%l:%M", tick_time);
-//  snprintf(s_current_time_buffer,sizeof(s_current_time_buffer),"%d",UserMidStepGoal);
-//  text_layer_set_text(s_time_layer, "12:44");
-  text_layer_set_text(s_time_layer, s_current_time_buffer);
-  static char s_weekdayname[30];
-  strftime(s_weekdayname, sizeof(s_weekdayname), "%A%n%b %e", tick_time);
-  text_layer_set_text(s_date_layer, s_weekdayname);
+static void update_steps() {
   s_step_count_prev = s_step_count;
   s_step_count = get_health(HealthMetricStepCount, 0);
   s_step_average = get_health(HealthMetricStepCount, 1);
-  s_step_goal = get_health(HealthMetricStepCount, 2);
-//  s_step_count = 3898;
-//  s_step_average = 3398;
+  if (UserSetpGoalType) {
+    s_step_goal = get_health(HealthMetricStepCount, 2);
+  } else {
+    s_step_goal = UserStepGoal;
+  }
+//  s_step_count = s_step_goal;
+//  s_step_goal = 1690;
   if (s_step_count_prev <=1) {s_step_count_prev = s_step_count;}
   display_step_count();
   layer_mark_dirty(s_progress_layer);
@@ -192,11 +291,71 @@ static void update_time() {
     vibes_enqueue_custom_pattern(pat);
     text_layer_set_text(s_status_layer, "Avg Goal\nMet");
     app_timer_register(TIMER_INTERVAL_MS, clear_status, NULL);
-  }
+  }  
+}
+
+static void update_time() {
+  time_t temp = time(NULL);
+  struct tm *tick_time = localtime(&temp);
+  strftime(s_current_time_buffer, sizeof(s_current_time_buffer),
+           clock_is_24h_style() ? "%H:%M" : "%l:%M", tick_time);
+  text_layer_set_text(s_time_layer, s_current_time_buffer);
+  static char s_weekdayname[30];
+  strftime(s_weekdayname, sizeof(s_weekdayname), "%A%n%b %e", tick_time);
+  text_layer_set_text(s_date_layer, s_weekdayname);
+}
+
+static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
+  // A tap event occured
+  Watchface_Hibernate=S_FALSE;
+  // Unsubscribe from tap events
+  accel_tap_service_unsubscribe();
+  update_steps();
+  update_time();
+  clear_status();
+  if (WeatherEnabled) {generic_weather_fetch(weather_callback);} 
+}
+
+bool is_user_sleeping() {
+  static bool is_sleeping=S_FALSE;
+  HealthActivityMask activities = health_service_peek_current_activities();
+  is_sleeping = activities & HealthActivitySleep || activities & HealthActivityRestfulSleep;
+  return is_sleeping;
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits changed) {
-  update_time();
+  if (!Watchface_Hibernate) {
+    update_steps();
+    update_time();
+    if ((tick_time->tm_min % 30 == 0)&&WeatherEnabled) {  
+      generic_weather_fetch(weather_callback);
+    }
+    if ((tick_time->tm_min % 10 == 0)||((tick_time->tm_hour==UserManualSleepStart)&&tick_time->tm_min==1)) {
+      //every 10 minutes check if the user is sleeping
+      if ((is_user_sleeping())||(tick_time->tm_hour==UserManualSleepStart)) {
+        Watchface_Hibernate = S_TRUE;
+        text_layer_set_text(s_status_layer,"Watch is Sleeping");
+        // Subscribe to tap events
+        accel_tap_service_subscribe(accel_tap_handler);
+      }
+    }
+  } else {
+      if (tick_time->tm_min % 10 == 0) {
+        if (!is_user_sleeping()) {  //if we detect the user is sleeping always stay in hibernation
+          if ((UserManualSleepStart==24)||(tick_time->tm_hour==((UserManualSleepStart+6)%24))) { //if the user is not sleeping, and they either disabled the manual timer or the current hour is 6 hours after the manual sleep time
+            Watchface_Hibernate=S_FALSE;
+            // Unsubscribe from tap events
+            accel_tap_service_unsubscribe();
+            update_steps();
+            update_time();
+            clear_status();
+            if (WeatherEnabled) {
+              generic_weather_fetch(weather_callback);
+            }
+          }       
+        }         
+      }
+  }
 }
 
 static void dots_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -297,8 +456,106 @@ static void average_layer_update_proc(Layer *layer, GContext *ctx) {
     trigangle - line_width_trigangle, trigangle);
 }
 
+static void inbox_received_callback(DictionaryIterator *iterator, void *context)
+{
+	Tuple *data = dict_find(iterator, MESSAGE_KEY_READY);
+	if(data) 	{
+		APP_LOG(APP_LOG_LEVEL_DEBUG, "Ready Received!. Requesting Weather");
+//    snprintf(generic_status, sizeof(generic_status), "!%d!%d!%d", WeatherSetupStatusKey, WeatherSetupStatusProvider, WeatherEnabled);
+//    text_layer_set_text(s_status_layer, generic_status);
+    if(WeatherSetupStatusKey&&WeatherSetupStatusProvider&&WeatherEnabled) {
+      generic_weather_fetch(weather_callback);
+    }
+  }
+  
+	data = dict_find(iterator, MESSAGE_KEY_STEPGOAL);
+	if(data) 	{
+		UserStepGoal = data->value->uint32;
+	}
+
+	data = dict_find(iterator, MESSAGE_KEY_STEPMIDGOAL);
+	if(data) 	{
+		UserMidStepGoal= data->value->uint32;
+	}
+  
+	data = dict_find(iterator, MESSAGE_KEY_STEPGOALENABLED);
+	if(data) 	{
+		StepGoalEnabled = data->value->int32 == 1;
+	}
+  
+  data = dict_find(iterator, MESSAGE_KEY_MANUALSLEEPSTART);
+	if(data) 	{
+		UserManualSleepStart = data->value->int32;
+	}
+  
+	data = dict_find(iterator, MESSAGE_KEY_TEXTCOLOR);
+  if(data) {
+    if (data->value->int32!=text_color_value) {
+      text_color_value = data->value->int32;
+      text_color = GColorFromHEX(text_color_value);
+      text_layer_set_text_color(s_time_layer, text_color);
+      text_layer_set_text_color(s_date_layer, text_color);
+      text_layer_set_text_color(icon_weather_layer, text_color);
+      text_layer_set_text_color(s_temperature_layer, text_color);
+      text_layer_set_text_color(s_date_layer, text_color);
+      text_layer_set_text_color(s_status_layer, text_color);
+    }
+  }  
+  
+	data = dict_find(iterator, MESSAGE_KEY_APIKEY);
+	if(data)
+	{
+		strcpy(api_key, data->value->cstring);
+    if (strlen(api_key)>0) {
+      generic_weather_set_api_key(api_key);
+      WeatherSetupStatusKey=S_TRUE;
+    } else {
+      WeatherSetupStatusKey=S_FALSE;
+    }
+	}
+
+	data = dict_find(iterator, MESSAGE_KEY_FTICK);
+	if(data)
+	{
+		F_Tick = data->value->int32 == 1;
+	}
+
+  data = dict_find(iterator, MESSAGE_KEY_WeatherProvide);
+	if(data)
+	{
+    strcpy(userweatherprovider, data->value->cstring);
+    WeatherEnabled = S_TRUE;  //if this is not the case then we reset it back to false
+    WeatherSetupStatusProvider = S_TRUE;
+    if (strcmp(userweatherprovider,"OpenWe")==0)
+      {generic_weather_set_provider(GenericWeatherProviderOpenWeatherMap);}
+    else if(strcmp(userweatherprovider,"WUnder")==0)
+      {generic_weather_set_provider(GenericWeatherProviderWeatherUnderground);}
+  	else if(strcmp(userweatherprovider,"For.io")==0)
+      {generic_weather_set_provider(GenericWeatherProviderForecastIo);}
+    else
+      {WeatherSetupStatusProvider = S_FALSE;
+      WeatherEnabled = S_FALSE;}
+  }
+
+  data = dict_find(iterator, MESSAGE_KEY_GOALTYPE);
+  if(data) {
+    UserSetpGoalType = data->value->int32 == 1;
+    //this is the last setting so go ahead and adjust the display to the new settings
+    update_steps();
+    layer_mark_dirty(s_progress_layer);
+    layer_mark_dirty(s_average_layer);
+    if(WeatherSetupStatusKey&&WeatherSetupStatusProvider&&WeatherEnabled) {
+      generic_weather_fetch(weather_callback);
+    } else {
+      text_layer_set_text(icon_weather_layer, "M");  //this will blank the weather icon
+      text_layer_set_text(s_temperature_layer, " ");
+    }
+  }
+}
+
 static void window_load(Window *window) {
   GRect window_bounds = layer_get_bounds(s_window_layer);
+  s_weather_icon_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_WEATHERICON_38));
 
   // Dots for the progress indicator
   s_dots_layer = layer_create(window_bounds);
@@ -317,7 +574,7 @@ static void window_load(Window *window) {
 
   // Create a layer to hold the current time
   s_time_layer = text_layer_create(GRect(0, 58, window_bounds.size.w, 45));
-  text_layer_set_text_color(s_time_layer, GColorWhite);
+  text_layer_set_text_color(s_time_layer, text_color);
   text_layer_set_background_color(s_time_layer, GColorClear);
   text_layer_set_font(s_time_layer, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
@@ -325,6 +582,7 @@ static void window_load(Window *window) {
 
   // Create a layer to hold the current step count
   s_step_layer = text_layer_create(GRect(0, 40, window_bounds.size.w, 38));
+  text_layer_set_text_color(s_step_layer, GColorPictonBlue);
   text_layer_set_background_color(s_step_layer, GColorClear);
   text_layer_set_font(s_step_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(s_step_layer, GTextAlignmentCenter);
@@ -336,7 +594,7 @@ static void window_load(Window *window) {
   text_layer_set_font(s_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
   // Improve the layout to be more like a watchface
   text_layer_set_background_color(s_date_layer, GColorClear);
-  text_layer_set_text_color(s_date_layer, GColorWhite);
+  text_layer_set_text_color(s_date_layer, text_color);
   text_layer_set_text_alignment(s_date_layer, GTextAlignmentCenter);
   // Add it as a child layer to the Window's root layer
   layer_add_child(s_window_layer, text_layer_get_layer(s_date_layer));
@@ -347,11 +605,31 @@ static void window_load(Window *window) {
   text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
   // Improve the layout to be more like a watchface
   text_layer_set_background_color(s_status_layer, GColorClear);
-  text_layer_set_text_color(s_status_layer, GColorWhite);
+  text_layer_set_text_color(s_status_layer, text_color);
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentRight);
   // Add it as a child layer to the Window's root layer
   layer_add_child(s_window_layer, text_layer_get_layer(s_status_layer));
   
+  //layer for the weather icon
+  icon_weather_layer = text_layer_create(GRect(0, 12, window_bounds.size.w, 40));
+  // Apply to TextLayer
+  text_layer_set_font(icon_weather_layer, s_weather_icon_font);
+  // Improve the layout to be more like a watchface
+  text_layer_set_background_color(icon_weather_layer, GColorClear);
+  text_layer_set_text_color(icon_weather_layer, text_color);
+  text_layer_set_text_alignment(icon_weather_layer, GTextAlignmentCenter);
+  // Add it as a child layer to the Window's root layer
+  layer_add_child(s_window_layer, text_layer_get_layer(icon_weather_layer));
+  
+  //layer for the tempature
+  s_temperature_layer = text_layer_create(GRect(0, 0, 40, 42));
+  text_layer_set_text_color(s_temperature_layer, text_color);
+  text_layer_set_background_color(s_temperature_layer, GColorClear);
+  text_layer_set_font(s_temperature_layer, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
+  text_layer_set_text_alignment(s_temperature_layer, GTextAlignmentLeft);
+  layer_add_child(s_window_layer, text_layer_get_layer(s_temperature_layer));
+  
+  //layer for the bluetooth icon
   s_bt_layer = layer_create(GRect(120,134,21,23));
   layer_set_update_proc(s_bt_layer, bt_update_proc);
   layer_add_child(s_window_layer, s_bt_layer);
@@ -373,7 +651,13 @@ static void window_unload(Window *window) {
   layer_destroy(s_dots_layer);
   layer_destroy(s_progress_layer);
   layer_destroy(s_average_layer);
-  //layer_destroy(s_window_layer);
+  text_layer_destroy(s_temperature_layer);
+  text_layer_destroy(icon_weather_layer);
+
+    // Unload GFont
+  fonts_unload_custom_font(s_weather_icon_font);
+
+  //unregister from services
   events_battery_state_service_unsubscribe(battery_callback);
   events_connection_service_unsubscribe(bluetooth_callback);
   events_tick_timer_service_unsubscribe(tick_handler);
@@ -381,10 +665,15 @@ static void window_unload(Window *window) {
   events_app_message_unsubscribe(inbox_dropped_callback);
   events_app_message_unsubscribe(outbox_failed_callback);
   events_app_message_unsubscribe(outbox_sent_callback);
+
+  //destroy root window
   window_destroy(window);
 }
 
 void init() {
+	//I shouldn't be doing this here and it should be in read_persist, but the function takes a while to complete and I need this setting for window_load
+  text_color = persist_exists(MESSAGE_KEY_TEXTCOLOR)? GColorFromHEX(persist_read_int(MESSAGE_KEY_TEXTCOLOR)) : GColorWhite;
+
   s_window = window_create();
   s_window_layer = window_get_root_layer(s_window);
   window_set_background_color(s_window, GColorBlack);
@@ -393,15 +682,31 @@ void init() {
     .load = window_load,
     .unload = window_unload
   });
-  //generic_weather_init();
 
   read_persist();
   window_stack_push(s_window, true);
 
+  //initalize weather
+  generic_weather_init();
+  if (strlen(api_key)>0) {
+    WeatherSetupStatusKey=S_TRUE;
+    generic_weather_set_api_key(api_key);
+  }
+  if (strcmp(userweatherprovider,"OpenWe")==0)
+    {generic_weather_set_provider(GenericWeatherProviderOpenWeatherMap);
+    WeatherSetupStatusProvider=S_TRUE;}
+  else if(strcmp(userweatherprovider,"WUnder")==0)
+    {generic_weather_set_provider(GenericWeatherProviderWeatherUnderground);
+    WeatherSetupStatusProvider=S_TRUE;}
+	else if(strcmp(userweatherprovider,"For.io")==0)
+    {generic_weather_set_provider(GenericWeatherProviderForecastIo);
+    WeatherSetupStatusProvider=S_TRUE;}
+  else
+    { WeatherEnabled = S_FALSE;
+    }
+
   // Register with TickTimerService
   events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-  // Make sure the time is displayed from the start
-  //tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   
   // Register for battery level updates
   events_battery_state_service_subscribe(battery_callback);
@@ -411,6 +716,8 @@ void init() {
   // Register for Bluetooth connection updates
   events_connection_service_subscribe((ConnectionHandlers) {.pebble_app_connection_handler = bluetooth_callback});
 
+  // Make sure the time, steps, and status are displayed from the start
+  update_steps();
   update_time();
   clear_status();
 	events_app_message_request_inbox_size(1024);
@@ -423,7 +730,7 @@ void init() {
 
 void deinit() {
 	store_persist();
-//  generic_weather_deinit();
+  generic_weather_deinit();
 }
 
 int main() {
