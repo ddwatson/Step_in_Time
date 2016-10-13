@@ -256,9 +256,12 @@ static void update_steps() {
   } else {
     s_step_goal = UserStepGoal;
   }
-//  s_step_count = s_step_goal;
-//  s_step_goal = 1690;
-  if (s_step_count_prev <=1) {s_step_count_prev = s_step_count;}
+  if (s_step_goal==0) {//this comes up when the watch has less than a week of data
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    s_step_goal = UserStepGoal;  //just use the user's step goal
+    s_step_average=(((tick_time->tm_hour+1)*s_step_goal)/24);}  //calculate average by the time of day
+  if (s_step_count_prev <2) {s_step_count_prev = s_step_count;}
   display_step_count();
   layer_mark_dirty(s_progress_layer);
   layer_mark_dirty(s_average_layer);
@@ -395,11 +398,11 @@ static void battery_update_proc(Layer *layer, GContext *ctx) {
   graphics_draw_line(ctx, GPoint(bounds.size.w-2, 1), GPoint(bounds.size.w-2, bounds.size.h-2));
 
   // Find the width of the bar
-  int width = (int)(float)(((float)s_battery_level / 100.0F) * bounds.size.w-3);
+  int width = (s_battery_level * (bounds.size.w-2))/100;
 
   // Draw the bar
-  graphics_context_set_fill_color(ctx, GColorBlueMoon);
-  graphics_fill_rect(ctx, GRect(1, 1, width-3, bounds.size.h-2), 0, GCornerNone);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, GRect(1, 1, width, bounds.size.h-2), 0, GCornerNone);
 }
 
 static void bt_update_proc(Layer *layer, GContext *ctx) {
@@ -428,7 +431,7 @@ static void bt_update_proc(Layer *layer, GContext *ctx) {
 
 static void progress_layer_update_proc(Layer *layer, GContext *ctx) {
   const GRect inset = grect_inset(layer_get_bounds(layer), GEdgeInsets(2));
-  int stepprogress = (int)(float)(((float)s_step_count / s_step_goal) * 360); 
+  int stepprogress = (s_step_count*360) / s_step_goal;
 
   graphics_context_set_fill_color(ctx, GColorJaegerGreen);
   graphics_fill_radial(ctx, inset, GOvalScaleModeFitCircle, 12,
@@ -635,7 +638,7 @@ static void window_load(Window *window) {
   layer_add_child(s_window_layer, s_bt_layer);
   
     // Create battery meter Layer
-  s_battery_layer = layer_create(GRect(3, 144, 25, 9));
+  s_battery_layer = layer_create(GRect(0, 144, 28, 9));
   layer_set_update_proc(s_battery_layer, battery_update_proc);
   // Add to Window
   layer_add_child(s_window_layer, s_battery_layer);
