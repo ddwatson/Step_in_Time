@@ -47,16 +47,6 @@ module.exports = [
         "defaultValue": true
       },
       {
-        "type": "slider",
-        "messageKey": "MANUALSLEEPSTART",
-        "defaultValue": 24,
-        "label": "Manually set the watchface to go to sleep",
-        "description": "This setting is in military time and will stop the watchface refreshing for 6 hours to save power, flick your wrist to bring the watchface out of sleep mode.  Set to 24 to disable.",
-        "min": 0,
-        "max": 24,
-        "step": 1
-      },
-      {
       "type": "color",
       "messageKey": "TEXTCOLOR",
       "defaultValue": "FFAA00",
@@ -64,8 +54,27 @@ module.exports = [
       "sunlight": true,
       }
     ]
-    },
-  {
+    },{
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Power Saving Settings"
+      },
+      {
+        "type": "toggle",
+        "messageKey": "SLEEPENABLED",
+        "label": "When enabled, the watch detects when you are sleeping and will stop the display showing 'Watch is sleeping' and set the time to 8888 to save power.  Flick your wrist to immediately wake the watckface",
+        "defaultValue": true
+      },
+      {
+        "type": "toggle",
+        "messageKey": "HIBERNATEENABLED",
+        "label": "When enabled, the watch detects when there is no significant movement for 30 minutes (you couch potato) and will stop the display showing 'Watch is idle' and set the time to 8888 to save power.  Flick your wrist to immediately wake the watckface",
+        "defaultValue": true
+      }
+    ]
+      },{
     "type": "section",
     "items": [
       {

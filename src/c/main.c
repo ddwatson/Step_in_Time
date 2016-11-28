@@ -8,11 +8,15 @@ static TextLayer *s_time_layer, *s_step_layer, *s_date_layer, *s_status_layer,  
 static char s_current_time_buffer[8], s_current_steps_buffer[16], api_key[50], userweatherprovider[7];
 static int s_step_count = 1, s_step_count_prev =1, s_step_goal = 1, s_step_average = 1, s_battery_level, s_battery_charging, UserMidStepGoal = 4500, UserStepGoal = 7500;
 #define TIMER_INTERVAL_MS 180000
+#define TIMER_IDLE_INTERVAL_MS 1800000
+//1800000
 static char generic_status[]="Day Avg:\n10,000";
-static bool F_Tick = S_TRUE, Watchface_Hibernate = S_FALSE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE;
-static int text_color_value =0, UserManualSleepStart=24;
+static bool F_Tick = S_TRUE, Watchface_Hibernate = S_FALSE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE, HibernateEnable = S_TRUE, SleepEnable = S_TRUE;
+static int text_color_value =0;
 GColor text_color;
 static GFont s_weather_icon_font;
+static EventHandle s_health_event_handle, s_tick_timer_event_handle, s_idle_timer_event_handle;
+
 
 static void read_persist()
 {
@@ -28,8 +32,11 @@ static void read_persist()
 	{
 		StepGoalEnabled = persist_read_bool(MESSAGE_KEY_STEPGOALENABLED);
 	}
-	if(persist_exists(MESSAGE_KEY_MANUALSLEEPSTART)) 	{
-		UserManualSleepStart = persist_read_int(MESSAGE_KEY_MANUALSLEEPSTART);
+	if(persist_exists(MESSAGE_KEY_SLEEPENABLED)) {
+		SleepEnable = persist_read_bool(MESSAGE_KEY_SLEEPENABLED);
+	}
+	if(persist_exists(MESSAGE_KEY_HIBERNATEENABLED)) {
+		HibernateEnable = persist_read_bool(MESSAGE_KEY_HIBERNATEENABLED);
 	}
   if(persist_exists(MESSAGE_KEY_GOALTYPE)) {
     UserSetpGoalType = persist_read_bool(MESSAGE_KEY_GOALTYPE);
@@ -52,7 +59,8 @@ static void store_persist()
   persist_write_int(MESSAGE_KEY_STEPMIDGOAL, UserMidStepGoal);
   persist_write_bool(MESSAGE_KEY_STEPGOALENABLED, StepGoalEnabled);
   persist_write_bool(MESSAGE_KEY_GOALTYPE, UserSetpGoalType);
-  persist_write_int(MESSAGE_KEY_MANUALSLEEPSTART, UserManualSleepStart);
+  persist_write_bool(MESSAGE_KEY_SLEEPENABLED, SleepEnable);
+  persist_write_bool(MESSAGE_KEY_HIBERNATEENABLED, HibernateEnable);
 	persist_write_string(MESSAGE_KEY_APIKEY, api_key);
   persist_write_bool(MESSAGE_KEY_FTICK, F_Tick);
 	persist_write_string(MESSAGE_KEY_WeatherProvide, userweatherprovider);
@@ -308,57 +316,104 @@ static void update_time() {
   text_layer_set_text(s_date_layer, s_weekdayname);
 }
 
-static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
-  // A tap event occured
-  Watchface_Hibernate=S_FALSE;
-  // Unsubscribe from tap events
-  accel_tap_service_unsubscribe();
+static void watchface_refresh(){
+
   update_steps();
   update_time();
   clear_status();
   if (WeatherEnabled) {generic_weather_fetch(weather_callback);} 
 }
 
-bool is_user_sleeping() {
-  static bool is_sleeping=S_FALSE;
-  HealthActivityMask activities = health_service_peek_current_activities();
-  is_sleeping = activities & HealthActivitySleep || activities & HealthActivityRestfulSleep;
-  return is_sleeping;
-}
 
 static void tick_handler(struct tm *tick_time, TimeUnits changed) {
-  if (!Watchface_Hibernate) {
     update_steps();
     update_time();
     if ((tick_time->tm_min % 30 == 0)&&WeatherEnabled) {  
       generic_weather_fetch(weather_callback);
     }
-    if ((tick_time->tm_min % 10 == 0)||((tick_time->tm_hour==UserManualSleepStart)&&tick_time->tm_min==1)) {
-      //every 10 minutes check if the user is sleeping
-      if ((is_user_sleeping())||(tick_time->tm_hour==UserManualSleepStart)) {
-        Watchface_Hibernate = S_TRUE;
-        text_layer_set_text(s_status_layer,"Watch is Sleeping");
-        // Subscribe to tap events
-        accel_tap_service_subscribe(accel_tap_handler);
-      }
-    }
-  } else {
-      if (tick_time->tm_min % 10 == 0) {
-        if (!is_user_sleeping()) {  //if we detect the user is sleeping always stay in hibernation
-          if ((UserManualSleepStart==24)||(tick_time->tm_hour==((UserManualSleepStart+6)%24))) { //if the user is not sleeping, and they either disabled the manual timer or the current hour is 6 hours after the manual sleep time
-            Watchface_Hibernate=S_FALSE;
-            // Unsubscribe from tap events
-            accel_tap_service_unsubscribe();
-            update_steps();
-            update_time();
-            clear_status();
-            if (WeatherEnabled) {
-              generic_weather_fetch(weather_callback);
-            }
-          }       
-        }         
-      }
+}
+
+static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
+  // A tap event occured
+  Watchface_Hibernate=S_FALSE;
+  // Unsubscribe from tap events
+  accel_tap_service_unsubscribe();
+  watchface_refresh();
+  if (s_tick_timer_event_handle==NULL) {
+      s_tick_timer_event_handle = events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   }
+  if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS);}
+}
+
+bool is_user_sleeping() {
+  static bool is_sleeping=S_FALSE;
+  if (SleepEnable) {
+    HealthActivityMask activities = health_service_peek_current_activities();
+    is_sleeping = activities & HealthActivitySleep || activities & HealthActivityRestfulSleep;
+  }
+  return is_sleeping;
+/*  if (s_tick_timer_event_handle!=NULL) {
+    return S_TRUE;
+  } else {
+    return S_FALSE;
+  }*/
+}
+
+static void prv_health_event_handler(HealthEventType event, void *context) {
+    switch(event) {
+    case HealthEventSignificantUpdate: 
+      if (!Watchface_Hibernate) {
+        if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS);}
+        prv_health_event_handler(HealthEventSleepUpdate, context);
+      }
+      break;
+    case HealthEventSleepUpdate: {
+        bool sleeping = is_user_sleeping();
+        if (sleeping && ((s_tick_timer_event_handle!=NULL)||Watchface_Hibernate)) {
+          if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS*16);}
+          text_layer_set_text(s_status_layer,"Watch is Sleeping");
+          text_layer_set_text(s_time_layer, "8888");
+          if (s_tick_timer_event_handle!=NULL) {
+            events_tick_timer_service_unsubscribe(s_tick_timer_event_handle);
+            s_tick_timer_event_handle=NULL;
+          }
+          Watchface_Hibernate = S_FALSE;  //if the user falls asleep while in hibernation then reset to wake when the user wakes
+          accel_tap_service_subscribe(accel_tap_handler);
+        } else if (!sleeping && (s_tick_timer_event_handle==NULL) && !Watchface_Hibernate) {
+          if (s_tick_timer_event_handle==NULL) {
+              s_tick_timer_event_handle = events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+            }
+          accel_tap_service_unsubscribe();  //do this here because having a Null tick_timer coorelates with subscribing to tap service
+          Watchface_Hibernate = S_FALSE;
+          watchface_refresh();
+          if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS);}
+        }
+      }
+      break;
+    case HealthEventMovementUpdate:
+      if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle, TIMER_IDLE_INTERVAL_MS);}
+      break;
+    case HealthEventHeartRateUpdate:
+//      app_timer_reschedule(s_idle_timer_event_handle, TIMER_IDLE_INTERVAL_MS);
+      break;
+    case HealthEventMetricAlert:
+      break;
+    }
+}
+
+static void idle_scheduler(){
+  if (HibernateEnable) {
+    text_layer_set_text(s_status_layer,"Watch is idle");
+    text_layer_set_text(s_time_layer, "8888");
+    if (s_tick_timer_event_handle!=NULL){
+      events_tick_timer_service_unsubscribe(s_tick_timer_event_handle);
+      s_tick_timer_event_handle=NULL;
+    }
+    Watchface_Hibernate = S_TRUE;  //signifies that the watchface went idle, used so that a healthevent does not wake up the watch
+    accel_tap_service_subscribe(accel_tap_handler);
+    //prv_health_event_handler(HealthEventSleepUpdate, NULL);
+    s_idle_timer_event_handle = app_timer_register(TIMER_IDLE_INTERVAL_MS*16,idle_scheduler,NULL);  //the only time the idle handeler is used is when this function is called, so create a new one that can be rescheduled by tap handeler or something else.
+  } 
 }
 
 static void dots_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -434,14 +489,11 @@ static void progress_layer_update_proc(Layer *layer, GContext *ctx) {
   int stepprogress = (s_step_count*360) / s_step_goal;
 
   graphics_context_set_fill_color(ctx, GColorJaegerGreen);
-  graphics_fill_radial(ctx, inset, GOvalScaleModeFitCircle, 12,
-    DEG_TO_TRIGANGLE(0),
-  DEG_TO_TRIGANGLE(stepprogress));
-//  DEG_TO_TRIGANGLE((int)(float)(((float)s_step_count / s_step_goal) * 360)));
+  graphics_fill_radial(ctx, inset, GOvalScaleModeFitCircle, 12,DEG_TO_TRIGANGLE(0),DEG_TO_TRIGANGLE(stepprogress));
   graphics_context_set_fill_color(ctx, GColorPictonBlue);
-  graphics_fill_radial(ctx, inset, GOvalScaleModeFitCircle, 12,
-    DEG_TO_TRIGANGLE(0),
-  DEG_TO_TRIGANGLE(stepprogress-360));
+  graphics_fill_radial(ctx, inset, GOvalScaleModeFitCircle, 12,DEG_TO_TRIGANGLE(0),DEG_TO_TRIGANGLE(stepprogress-360));
+  graphics_context_set_fill_color(ctx, GColorRed);
+  graphics_fill_radial(ctx, inset, GOvalScaleModeFitCircle, 12,DEG_TO_TRIGANGLE(0),DEG_TO_TRIGANGLE(stepprogress-720));
 }
 
 static void average_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -486,9 +538,27 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 		StepGoalEnabled = data->value->int32 == 1;
 	}
   
-  data = dict_find(iterator, MESSAGE_KEY_MANUALSLEEPSTART);
-	if(data) 	{
-		UserManualSleepStart = data->value->int32;
+	data = dict_find(iterator, MESSAGE_KEY_SLEEPENABLED);
+	if(data)
+	{
+		SleepEnable = data->value->int32 == 1;
+	}
+
+	data = dict_find(iterator, MESSAGE_KEY_HIBERNATEENABLED);
+	if(data)
+	{
+		HibernateEnable = data->value->int32 == 1;
+
+    events_health_service_events_unsubscribe(s_health_event_handle);
+    //register to recieve significant updates of which we are looking for sleep updates
+    if (SleepEnable||HibernateEnable) {s_health_event_handle = events_health_service_events_subscribe(prv_health_event_handler, NULL);}
+  
+    //register to detect when the watch goes idle
+    if (HibernateEnable) {
+      s_idle_timer_event_handle = app_timer_register(TIMER_IDLE_INTERVAL_MS,idle_scheduler,NULL);
+    } else {
+      app_timer_cancel(s_idle_timer_event_handle);
+    }
 	}
   
 	data = dict_find(iterator, MESSAGE_KEY_TEXTCOLOR);
@@ -709,7 +779,13 @@ void init() {
     }
 
   // Register with TickTimerService
-  events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+  s_tick_timer_event_handle = events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+  
+  //register to recieve significant updates of which we are looking for sleep updates
+  if (SleepEnable||HibernateEnable) {s_health_event_handle = events_health_service_events_subscribe(prv_health_event_handler, NULL);}
+  
+  //register to detect when the watch goes idle
+  if (HibernateEnable) {s_idle_timer_event_handle = app_timer_register(TIMER_IDLE_INTERVAL_MS,idle_scheduler,NULL);}
   
   // Register for battery level updates
   events_battery_state_service_subscribe(battery_callback);
