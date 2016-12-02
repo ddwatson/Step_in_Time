@@ -6,12 +6,9 @@ static Window *s_window;
 static Layer *s_window_layer, *s_dots_layer, *s_progress_layer, *s_average_layer, *s_battery_layer, *s_bt_layer;
 static TextLayer *s_time_layer, *s_step_layer, *s_date_layer, *s_status_layer,  *s_temperature_layer, *icon_weather_layer;
 static char s_current_time_buffer[8], s_current_steps_buffer[16], api_key[50], userweatherprovider[7];
-static int s_step_count = 1, s_step_count_prev =1, s_step_goal = 1, s_step_average = 1, s_battery_level, s_battery_charging, UserMidStepGoal = 4500, UserStepGoal = 7500;
-#define TIMER_INTERVAL_MS 180000
-#define TIMER_IDLE_INTERVAL_MS 1800000
-//1800000
+static int s_step_count = 1, s_step_count_prev =1, s_step_goal = 1, s_step_average = 1, s_battery_level, s_battery_charging, UserMidStepGoal = 4500, UserStepGoal = 7500, TIMER_INTERVAL_MS=180000, TIMER_IDLE_INTERVAL=46, Current_Min=61, Hibernate_Min=61;;
 static char generic_status[]="Day Avg:\n10,000";
-static bool F_Tick = S_TRUE, Watchface_Hibernate = S_FALSE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE, HibernateEnable = S_TRUE, SleepEnable = S_TRUE;
+static bool F_Tick = S_TRUE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE, HibernateEnable = S_TRUE, SleepEnable = S_TRUE, Watchface_Hibernate = S_FALSE, Watchface_Sleep = S_FALSE;
 static int text_color_value =0;
 GColor text_color;
 static GFont s_weather_icon_font;
@@ -308,6 +305,7 @@ static void update_steps() {
 static void update_time() {
   time_t temp = time(NULL);
   struct tm *tick_time = localtime(&temp);
+  Current_Min=tick_time->tm_min;
   strftime(s_current_time_buffer, sizeof(s_current_time_buffer),
            clock_is_24h_style() ? "%H:%M" : "%l:%M", tick_time);
   text_layer_set_text(s_time_layer, s_current_time_buffer);
@@ -324,25 +322,33 @@ static void watchface_refresh(){
   if (WeatherEnabled) {generic_weather_fetch(weather_callback);} 
 }
 
+static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
+  // A tap event occured
+  Watchface_Hibernate=S_FALSE;
+  Watchface_Sleep = S_FALSE;
+  // Unsubscribe from tap events
+  accel_tap_service_unsubscribe();
+  watchface_refresh();
+  if (HibernateEnable) {
+    Hibernate_Min = (Current_Min + TIMER_IDLE_INTERVAL) % 60;  //I tried using a timer above but the interval is not set correctly on first run and the user has to relaunch the watchface.  Instead I am building my own timer
+  } else {
+    Hibernate_Min =61;  //this will never be the current minute so this disables the idle timer
+  }}
 
 static void tick_handler(struct tm *tick_time, TimeUnits changed) {
+  if (!Watchface_Hibernate && !Watchface_Sleep) {  //if we are no sleeping or hibernating
     update_steps();
     update_time();
     if ((tick_time->tm_min % 30 == 0)&&WeatherEnabled) {  
       generic_weather_fetch(weather_callback);
     }
-}
-
-static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
-  // A tap event occured
-  Watchface_Hibernate=S_FALSE;
-  // Unsubscribe from tap events
-  accel_tap_service_unsubscribe();
-  watchface_refresh();
-  if (s_tick_timer_event_handle==NULL) {
-      s_tick_timer_event_handle = events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+     if ((tick_time->tm_min == Hibernate_Min)&&HibernateEnable&&!Watchface_Sleep) {
+      Watchface_Hibernate =S_TRUE;
+      text_layer_set_text(s_status_layer,"Watch is Idle");
+      text_layer_set_text(s_time_layer, "...");
+      accel_tap_service_subscribe(accel_tap_handler);
+    }
   }
-  if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS);}
 }
 
 bool is_user_sleeping() {
@@ -362,36 +368,42 @@ bool is_user_sleeping() {
 static void prv_health_event_handler(HealthEventType event, void *context) {
     switch(event) {
     case HealthEventSignificantUpdate: 
-      if (!Watchface_Hibernate) {
-        if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS);}
-        prv_health_event_handler(HealthEventSleepUpdate, context);
+      if (!Watchface_Hibernate && HibernateEnable) {
+        Hibernate_Min = (Current_Min + TIMER_IDLE_INTERVAL) % 60;
       }
+      prv_health_event_handler(HealthEventSleepUpdate, context);
       break;
     case HealthEventSleepUpdate: {
+      if (SleepEnable) {
         bool sleeping = is_user_sleeping();
-        if (sleeping && ((s_tick_timer_event_handle!=NULL)||Watchface_Hibernate)) {
-          if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS*16);}
+        if (sleeping && !Watchface_Sleep) {
+          Watchface_Sleep = S_TRUE;
           text_layer_set_text(s_status_layer,"Watch is Sleeping");
-          text_layer_set_text(s_time_layer, "8888");
-          if (s_tick_timer_event_handle!=NULL) {
-            events_tick_timer_service_unsubscribe(s_tick_timer_event_handle);
-            s_tick_timer_event_handle=NULL;
-          }
+          text_layer_set_text(s_time_layer, "...");
           Watchface_Hibernate = S_FALSE;  //if the user falls asleep while in hibernation then reset to wake when the user wakes
           accel_tap_service_subscribe(accel_tap_handler);
-        } else if (!sleeping && (s_tick_timer_event_handle==NULL) && !Watchface_Hibernate) {
-          if (s_tick_timer_event_handle==NULL) {
-              s_tick_timer_event_handle = events_tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-            }
+        } else if (!sleeping && !Watchface_Hibernate) {
           accel_tap_service_unsubscribe();  //do this here because having a Null tick_timer coorelates with subscribing to tap service
+          Watchface_Sleep = S_FALSE;
           Watchface_Hibernate = S_FALSE;
           watchface_refresh();
-          if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle,TIMER_IDLE_INTERVAL_MS);}
+          if (HibernateEnable) {
+            Hibernate_Min = (Current_Min + TIMER_IDLE_INTERVAL) % 60;
+          } else {
+            Hibernate_Min =61;
+          }
         }
       }
+    }
       break;
     case HealthEventMovementUpdate:
-      if (HibernateEnable) {app_timer_reschedule(s_idle_timer_event_handle, TIMER_IDLE_INTERVAL_MS);}
+      if (Watchface_Hibernate||Watchface_Sleep) {
+        Watchface_Sleep = S_FALSE;
+        Watchface_Hibernate = S_FALSE;
+        watchface_refresh();
+        accel_tap_service_unsubscribe();  //do this here because having a Null tick_timer coorelates with subscribing to tap service
+      }
+      if (HibernateEnable&&!Watchface_Hibernate) {Hibernate_Min = (Current_Min + TIMER_IDLE_INTERVAL) % 60;}
       break;
     case HealthEventHeartRateUpdate:
 //      app_timer_reschedule(s_idle_timer_event_handle, TIMER_IDLE_INTERVAL_MS);
@@ -399,21 +411,6 @@ static void prv_health_event_handler(HealthEventType event, void *context) {
     case HealthEventMetricAlert:
       break;
     }
-}
-
-static void idle_scheduler(){
-  if (HibernateEnable) {
-    text_layer_set_text(s_status_layer,"Watch is idle");
-    text_layer_set_text(s_time_layer, "8888");
-    if (s_tick_timer_event_handle!=NULL){
-      events_tick_timer_service_unsubscribe(s_tick_timer_event_handle);
-      s_tick_timer_event_handle=NULL;
-    }
-    Watchface_Hibernate = S_TRUE;  //signifies that the watchface went idle, used so that a healthevent does not wake up the watch
-    accel_tap_service_subscribe(accel_tap_handler);
-    //prv_health_event_handler(HealthEventSleepUpdate, NULL);
-    s_idle_timer_event_handle = app_timer_register(TIMER_IDLE_INTERVAL_MS*16,idle_scheduler,NULL);  //the only time the idle handeler is used is when this function is called, so create a new one that can be rescheduled by tap handeler or something else.
-  } 
 }
 
 static void dots_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -552,13 +549,6 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     events_health_service_events_unsubscribe(s_health_event_handle);
     //register to recieve significant updates of which we are looking for sleep updates
     if (SleepEnable||HibernateEnable) {s_health_event_handle = events_health_service_events_subscribe(prv_health_event_handler, NULL);}
-  
-    //register to detect when the watch goes idle
-    if (HibernateEnable) {
-      s_idle_timer_event_handle = app_timer_register(TIMER_IDLE_INTERVAL_MS,idle_scheduler,NULL);
-    } else {
-      app_timer_cancel(s_idle_timer_event_handle);
-    }
 	}
   
 	data = dict_find(iterator, MESSAGE_KEY_TEXTCOLOR);
@@ -785,7 +775,7 @@ void init() {
   if (SleepEnable||HibernateEnable) {s_health_event_handle = events_health_service_events_subscribe(prv_health_event_handler, NULL);}
   
   //register to detect when the watch goes idle
-  if (HibernateEnable) {s_idle_timer_event_handle = app_timer_register(TIMER_IDLE_INTERVAL_MS,idle_scheduler,NULL);}
+  if (HibernateEnable) {Hibernate_Min = (Current_Min + TIMER_IDLE_INTERVAL) % 60;}
   
   // Register for battery level updates
   events_battery_state_service_subscribe(battery_callback);

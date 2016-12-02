@@ -3,10 +3,6 @@ module.exports = [
     "type": "heading",
     "defaultValue": "Step in Time Settings"
   },
-  {
-    "type": "text",
-    "defaultValue": "I will be adding more settings in the future."
-  },
     {
     "type": "section",
     "items": [
@@ -59,18 +55,22 @@ module.exports = [
     "items": [
       {
         "type": "heading",
-        "defaultValue": "Power Saving Settings"
+        "defaultValue": "Power Saving Options"
+      },
+      {
+      "type": "text",
+      "defaultValue": "These options will save your Pebble's battery life by stopping the display and prevent the weather from refreshing in these two circumstances."
       },
       {
         "type": "toggle",
         "messageKey": "SLEEPENABLED",
-        "label": "When enabled, the watch detects when you are sleeping and will stop the display showing 'Watch is sleeping' and set the time to 8888 to save power.  Flick your wrist to immediately wake the watckface",
+        "label": "If enabled, the watch will show 'Watch is sleeping' and set the time to ... when you are sleeping.  Flick your wrist to wake it up early",
         "defaultValue": true
       },
       {
         "type": "toggle",
         "messageKey": "HIBERNATEENABLED",
-        "label": "When enabled, the watch detects when there is no significant movement for 30 minutes (you couch potato) and will stop the display showing 'Watch is idle' and set the time to 8888 to save power.  Flick your wrist to immediately wake the watckface",
+        "label": "If enabled, the watch will show 'Watch is idle' and set time time to ... when you don't move for 45 minutes.  Flick your wrist to wake it  up or it will wake up automatically when you start moving",
         "defaultValue": true
       }
     ]
