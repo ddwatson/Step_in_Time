@@ -8,11 +8,11 @@ static TextLayer *s_time_layer, *s_step_layer, *s_date_layer, *s_status_layer,  
 static char s_current_time_buffer[8], s_current_steps_buffer[16], api_key[50], userweatherprovider[7];
 static int s_step_count = 1, s_step_count_prev =1, s_step_goal = 1, s_step_average = 1, s_battery_level, s_battery_charging, UserMidStepGoal = 4500, UserStepGoal = 7500, TIMER_INTERVAL_MS=180000, TIMER_IDLE_INTERVAL=46, Current_Min=61, Hibernate_Min=61;;
 static char generic_status[]="Day Avg:\n10,000";
-static bool F_Tick = S_TRUE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE, HibernateEnable = S_TRUE, SleepEnable = S_TRUE, Watchface_Hibernate = S_FALSE, Watchface_Sleep = S_FALSE;
+static bool F_Tick = S_TRUE, WeatherSetupStatusKey = S_FALSE, WeatherSetupStatusProvider = S_FALSE, WeatherReadyRecieved = S_FALSE, UserSetpGoalType = S_TRUE, WeatherEnabled = S_FALSE, StepGoalEnabled = S_TRUE, HibernateEnable = S_TRUE, SleepEnable = S_TRUE, Watchface_Hibernate = S_FALSE, Watchface_Sleep = S_FALSE;
 static int text_color_value =0;
 GColor text_color;
 static GFont s_weather_icon_font;
-static EventHandle s_health_event_handle, s_tick_timer_event_handle, s_idle_timer_event_handle;
+static EventHandle s_health_event_handle, s_tick_timer_event_handle;//, s_idle_timer_event_handle;
 
 
 static void read_persist()
@@ -185,7 +185,7 @@ static void outbox_failed_callback(DictionaryIterator *iterator, AppMessageResul
 
 static void outbox_sent_callback(DictionaryIterator *iterator, void *context)
 {
-	APP_LOG(APP_LOG_LEVEL_INFO, "Outbox send success!");
+	APP_LOG(APP_LOG_LEVEL_DEBUG, "Outbox send success!");
 }
 
 static int get_health(HealthMetric metric, int average)
@@ -261,11 +261,19 @@ static void update_steps() {
   } else {
     s_step_goal = UserStepGoal;
   }
-  if (s_step_goal==0) {//this comes up when the watch has less than a week of data
+  if(s_step_goal==0){s_step_goal = UserStepGoal;}  //just use the user's step goal if we have no goal data
+  if (s_step_average==0) {//this comes up when the watch has less than a week of health data
     time_t temp = time(NULL);
     struct tm *tick_time = localtime(&temp);
-    s_step_goal = UserStepGoal;  //just use the user's step goal
-    s_step_average=(((tick_time->tm_hour+1)*s_step_goal)/24);}  //calculate average by the time of day
+    int current_hour = tick_time->tm_hour;
+    if (current_hour<6) {
+      s_step_average = 100;
+    } else if (current_hour>21) {
+      s_step_average = s_step_goal;
+    } else {
+      s_step_average=(((current_hour-5)*s_step_goal)/16);  //calculate average by the time of day excluding the time before 
+    }
+  }
   if (s_step_count_prev <2) {s_step_count_prev = s_step_count;}
   display_step_count();
   layer_mark_dirty(s_progress_layer);
@@ -508,11 +516,38 @@ static void average_layer_update_proc(Layer *layer, GContext *ctx) {
     trigangle - line_width_trigangle, trigangle);
 }
 
+static void WeatherInitDeinit() {
+  if ((strlen(userweatherprovider)>0) && (strlen(api_key)>0)) {
+    //APP_LOG(APP_LOG_LEVEL_DEBUG, "WeatherInit");
+    if (WeatherSetupStatusProvider==S_FALSE) {generic_weather_init();}
+    generic_weather_set_api_key(api_key);
+    WeatherSetupStatusKey=S_TRUE;
+    if (strcmp(userweatherprovider,"OpenWe")==0)
+      {generic_weather_set_provider(GenericWeatherProviderOpenWeatherMap);
+      WeatherSetupStatusProvider=S_TRUE;}
+    else if(strcmp(userweatherprovider,"WUnder")==0)
+      {generic_weather_set_provider(GenericWeatherProviderWeatherUnderground);
+      WeatherSetupStatusProvider=S_TRUE;}
+    else if(strcmp(userweatherprovider,"For.io")==0)
+      {generic_weather_set_provider(GenericWeatherProviderForecastIo);
+      WeatherSetupStatusProvider=S_TRUE;}
+    else
+      {APP_LOG(APP_LOG_LEVEL_DEBUG, "UNKNOWN PROVIDER: -%s-", userweatherprovider);}
+  } else if (WeatherSetupStatusProvider==S_TRUE) {
+    generic_weather_deinit();
+    WeatherSetupStatusProvider=S_FALSE;
+    WeatherReadyRecieved = S_FALSE;
+    WeatherSetupStatusKey=S_FALSE;
+    //APP_LOG(APP_LOG_LEVEL_DEBUG, "WeatherDeinit");
+  }
+}
+
 static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 {
 	Tuple *data = dict_find(iterator, MESSAGE_KEY_READY);
 	if(data) 	{
-		APP_LOG(APP_LOG_LEVEL_DEBUG, "Ready Received!. Requesting Weather");
+    WeatherReadyRecieved = S_TRUE;
+		//APP_LOG(APP_LOG_LEVEL_DEBUG, "Ready Received!. Requesting Weather");
 //    snprintf(generic_status, sizeof(generic_status), "!%d!%d!%d", WeatherSetupStatusKey, WeatherSetupStatusProvider, WeatherEnabled);
 //    text_layer_set_text(s_status_layer, generic_status);
     if(WeatherSetupStatusKey&&WeatherSetupStatusProvider&&WeatherEnabled) {
@@ -587,17 +622,8 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 	if(data)
 	{
     strcpy(userweatherprovider, data->value->cstring);
-    WeatherEnabled = S_TRUE;  //if this is not the case then we reset it back to false
-    WeatherSetupStatusProvider = S_TRUE;
-    if (strcmp(userweatherprovider,"OpenWe")==0)
-      {generic_weather_set_provider(GenericWeatherProviderOpenWeatherMap);}
-    else if(strcmp(userweatherprovider,"WUnder")==0)
-      {generic_weather_set_provider(GenericWeatherProviderWeatherUnderground);}
-  	else if(strcmp(userweatherprovider,"For.io")==0)
-      {generic_weather_set_provider(GenericWeatherProviderForecastIo);}
-    else
-      {WeatherSetupStatusProvider = S_FALSE;
-      WeatherEnabled = S_FALSE;}
+    WeatherInitDeinit();
+    WeatherEnabled = WeatherSetupStatusProvider && WeatherSetupStatusKey;
   }
 
   data = dict_find(iterator, MESSAGE_KEY_GOALTYPE);
@@ -607,7 +633,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     update_steps();
     layer_mark_dirty(s_progress_layer);
     layer_mark_dirty(s_average_layer);
-    if(WeatherSetupStatusKey&&WeatherSetupStatusProvider&&WeatherEnabled) {
+    if(WeatherSetupStatusKey&&WeatherSetupStatusProvider&&WeatherEnabled&&WeatherReadyRecieved) {
       generic_weather_fetch(weather_callback);
     } else {
       text_layer_set_text(icon_weather_layer, "M");  //this will blank the weather icon
